@@ -2,33 +2,46 @@ import sys
 from ruamel.yaml import YAML
 
 
-SERVICE_PREFIX = 'sentry-'
 LOCAL_PATH = './'
+yaml = YAML()
+data = yaml.load(sys.stdin.read())
+top_volumes = data.get('volumes', {})
+services = data.get('services', {})
+converted_volumes = set()
 
 
 def convert(volumes):
     result = []
-    for volume in volumes:
-        if str(volume).startswith(SERVICE_PREFIX):
-            volume = LOCAL_PATH + volume
-        result.append(volume)
+    for mount in volumes:
+        if (isinstance(mount, str) and
+                not mount.startswith(LOCAL_PATH)):
+            converted_volumes.add(mount[:mount.find(':')])
+            mount = LOCAL_PATH + mount
+        elif isinstance(mount, dict):
+            src = mount.get('source')
+            if src and not src.startswith(LOCAL_PATH):
+                mount['source'] = LOCAL_PATH + src
+        result.append(mount)
+
     return result
 
 
-yaml = YAML()
-data = yaml.load(sys.stdin.read())
-volumes = data.get('volumes', {})
-services = [service[len(SERVICE_PREFIX):] for service in volumes.keys() if
-            service.startswith(SERVICE_PREFIX)]
-
 if services:
-    serv = data.get('services', {})
-    for key in serv.keys():
-        if key in services:
-            converted_volumes = convert(serv[key]['volumes'])
-            serv[key]['volumes'] = converted_volumes
-            volumes.pop(SERVICE_PREFIX + key)
-    data['volumes'] = volumes
+    for key in services.keys():
+        service_volumes = services[key].get('volumes', [])
+        if service_volumes:
+            service_volumes = convert(service_volumes)
+            services[key]['volumes'] = service_volumes
+
+    for volume in converted_volumes:
+        if volume in top_volumes.keys():
+            top_volumes.pop(volume)
+
+    if top_volumes:
+        data['volumes'] = top_volumes
+    else:
+        data.pop('volumes')
+        
     yaml.dump(data, sys.stdout)
 else:
-    sys.stdout.write('Script didn`t find services with named volumes\n')
+    sys.stdout.write('Script didn`t find services\n')
