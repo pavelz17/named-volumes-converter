@@ -1,7 +1,6 @@
 import sys
 from ruamel.yaml import YAML
 
-
 LOCAL_PATH = './'
 yaml = YAML()
 data = yaml.load(sys.stdin.read())
@@ -9,39 +8,36 @@ top_volumes = data.get('volumes', {})
 services = data.get('services', {})
 converted_volumes = set()
 
+if not services:
+    sys.exit()
+
 
 def convert(volumes):
     result = []
-    for mount in volumes:
-        if (isinstance(mount, str) and
-                not mount.startswith(LOCAL_PATH)):
-            converted_volumes.add(mount[:mount.find(':')])
-            mount = LOCAL_PATH + mount
-        elif isinstance(mount, dict):
-            src = mount.get('source')
-            if src and not src.startswith(LOCAL_PATH):
-                mount['source'] = LOCAL_PATH + src
-        result.append(mount)
+    for volume in volumes:
+        if (isinstance(volume, str) and
+                not volume.startswith(LOCAL_PATH)):
+            converted_volumes.add(volume[:volume.find(':')])
+            volume = LOCAL_PATH + volume
+        elif (isinstance(volume, dict) and
+                volume.get('source') and
+                not volume['source'].startswith(LOCAL_PATH)):
+            volume['source'] = LOCAL_PATH + volume['source']
+        result.append(volume)
 
     return result
 
 
-if services:
-    for key in services.keys():
-        service_volumes = services[key].get('volumes', [])
-        if service_volumes:
-            service_volumes = convert(service_volumes)
-            services[key]['volumes'] = service_volumes
+for key in services.keys():
+    service_volumes = convert(services[key].get('volumes', []))
+    if service_volumes:
+        services[key]['volumes'] = service_volumes
 
-    for volume in converted_volumes:
-        if volume in top_volumes.keys():
-            top_volumes.pop(volume)
+for volume in converted_volumes:
+    if volume in top_volumes.keys():
+        top_volumes.pop(volume)
 
-    if top_volumes:
-        data['volumes'] = top_volumes
-    else:
-        data.pop('volumes')
-        
-    yaml.dump(data, sys.stdout)
-else:
-    sys.stdout.write('Script didn`t find services\n')
+if not top_volumes:
+    data.pop('volumes')
+
+yaml.dump(data, sys.stdout)
